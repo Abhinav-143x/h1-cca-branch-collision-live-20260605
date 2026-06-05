@@ -1,2 +1,2 @@
-# owned disposable validation repo
-base-main-content
+# owned disposable validation fork
+fork-pr-main-content
