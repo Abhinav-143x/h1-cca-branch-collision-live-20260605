@@ -1,0 +1,61 @@
+name: Branch Collision Issue Comment Probe
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  probe:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Before action state
+        run: |
+          set -euxo pipefail
+          git status --short --branch
+          git branch --show-current || true
+          git rev-parse --abbrev-ref HEAD || true
+          git rev-parse HEAD
+          cat README.md
+
+      - name: Run Claude Code action until auth boundary
+        id: claude
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: After action state and conditional proof push
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          echo "claude outcome=${{ steps.claude.outcome }}"
+          git status --short --branch
+          git branch --show-current || true
+          git rev-parse --abbrev-ref HEAD || true
+          git rev-parse HEAD
+          cat README.md
+          if ! grep -q 'fork-pr-main-content' README.md; then
+            echo 'PR content was not checked out by the action; skipping push proof.'
+            exit 0
+          fi
+          echo "owned-live-proof $(date -u +%s)" > owned-live-proof.txt
+          git add owned-live-proof.txt
+          git config user.name "Owned Branch Collision Probe"
+          git config user.email "owned-branch-collision@example.invalid"
+          git commit -m "owned proof branch collision push"
+          git push origin HEAD
+          gh api repos/${{ github.repository }}/git/ref/heads/main --jq .object.sha
